@@ -1,4 +1,12 @@
-bool get_mask
+int8 mask_id
+int16[2] resolution
+bool create_depth_mask
+
 ---
-sensor_msgs/Image[] mask_image
-string image_condition
+
+sensor_msgs/Image rgb_img
+sensor_msgs/Image depth_img
+sensor_msgs/Image segmask
+sensor_msgs/CameraInfo rgb_camera_info
+sensor_msgs/CameraInfo depth_camera_info
+bool success
