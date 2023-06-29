@@ -47,6 +47,7 @@ DEPTH_THRESHOLD = 8
 DRAW_MARKER_POSE = False
 IM_SHOW = False
 IM_PUBLISH = False
+ID_LIST = [5, 15]
 
 class ArucoImageMasker:
     def __init__(self, ad, ap):
@@ -139,13 +140,29 @@ class ArucoImageMasker:
             num_of_id[id] += 1
         if target_id not in num_of_id or num_of_id[target_id] != 4:
             return False
-        self.mask_corners[id] = []
-        self.marker_corners[id] = []
+        mask_corners = []
+        marker_corners = []
         for i, [id] in enumerate(ids):
             if id != target_id:
                 continue
-            self.mask_corners[id].append([int(x) for x in corners[i][0][0]])
-            self.marker_corners[id].append(corners[i])
+            mask_corners.append([int(x) for x in corners[i][0][0]])
+            marker_corners.append(corners[i])
+
+        order = [0]
+        for i, c in enumerate(mask_corners):
+            d_min = 99999
+            d_min_idx = 0
+            for j, cn in enumerate(mask_corners[1:]):
+                if j in order:
+                    continue
+                d = np.linalg.norm(np.array(c) - np.array(cn))
+                if d < d_min:
+                    d_min = d
+                    d_min_idx = j
+            order.append(d_min_idx)
+
+        self.mask_corners[id] = [mask_corners[i] for i in order]
+        self.marker_corners[id] = [marker_corners[i] for i in order]
         return True
 
     def generate_mask(self, corner, img, dtype=np.uint8):
@@ -179,9 +196,6 @@ class ArucoImageMasker:
         gray_img = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2GRAY) 
         corners, marker_ids, _ = cv2.aruco.detectMarkers(
             gray_img, self.aruco_dictionary, parameters=self.aruco_parameters)
-        print('corners shape = {}'.format(np.array(corners).shape))
-        print('corners = {}'.format(corners))
-
         return corners, marker_ids
 
 
@@ -267,11 +281,29 @@ class MaskColorAndDepthImage(rclpy.node.Node):
         self.intrinsic_mat = None
         self.distortion = None
 
+        self.img_result = dict()
+        self.corners_result = dict()
+        self.marker_occupied = dict()
+        for id in ID_LIST:
+            self.marker_occupied[id] = False
+            self.img_result[id] = None
+            self.corners_result[id] = None
+
         self.aruco_dictionary = cv2.aruco.Dictionary_get(dictionary_id)
         self.aruco_parameters = cv2.aruco.DetectorParameters_create()
         self.img_masker = ArucoImageMasker(self.aruco_dictionary, self.aruco_parameters)
 
         self.bridge = CvBridge()
+        self.update_timer = None
+
+    def start_update_timer(self):
+        timer_period = 0.2
+        self.update_timer = self.create_timer(timer_period, self.update_timer_cb)
+
+    def update_timer_cb(self):
+        for id in ID_LIST:
+            if not self.marker_occupied[id] and (self.img_result[id] is None or self.corners_result[id] is None):
+                self.update_masked_img(id)
 
     def rgb_info_callback(self, info_msg):
         self.rgb_info_msg = info_msg
@@ -368,7 +400,27 @@ class MaskColorAndDepthImage(rclpy.node.Node):
             resized_infos.append(resized_info)
 
         return resized_imgs, resized_infos, resized_seg
-
+    
+    def update_masked_img(self, id):
+        img_result = self.img_masker.get_masked_img(
+            self.rgb_img, self.depth_img, id, False)
+        corners_result = self.img_masker.get_corners(id)
+        if img_result is None or corners_result is None:
+            return
+        depth_img = img_result[1]
+        mask_corners, _, corners_depth = corners_result
+        bound = [np.min(mask_corners, axis=0), np.max(mask_corners, axis=0)]
+        max_z = min(corners_depth) * 1000.0
+        img = depth_img[bound[0][1]:bound[1][1], bound[0][0]:bound[1][0]]
+        for row in img:
+            for x in row:
+                if 20 < x < max_z - 100:
+                    return
+                
+        self.img_result[id] = img_result
+        self.corners_result[id] = corners_result
+        return
+        
     def image_masking_cb(self, req, res):
         check_none = lambda val: any([x is None for x in val])
         prepared = not check_none(
@@ -378,34 +430,52 @@ class MaskColorAndDepthImage(rclpy.node.Node):
             res.success = False
             print('img not prepared')
             return res
+        
+        rq = GetMaskImage.Request
 
-        if req.create_depth_mask:
+        print('req.mode = {}, req.mode & rq.GET_MASKED_IMG = {}, not req.mode & rq.GET_MASKED_IMG = {}'.format(
+            req.mode, req.mode & rq.GET_MASKED_IMG, not req.mode & rq.GET_MASKED_IMG))
+
+        res.success = True
+        if req.mode & rq.CREATE_DEPTH_MASK:
             self.img_masker.set_empty_depth_img(self.depth_img, req.mask_id)
-            res.success = True
-            if req.update_mark_mask:
-                res.success = self.img_masker.check_and_update_mask(
-                    self.rgb_img, self.depth_img, req.mask_id, True)
-                corners_result = self.img_masker.get_corners(req.mask_id)
-                if corners_result is None:
-                    res.success = False
-                    return res
-                _, marker_corners, corners_depth = corners_result
-                poses, _, _ = self.compute_marker_poses(marker_corners)
-                res.marker_poses = poses
-                res.corners_depth = corners_depth
+
+        if req.mode & rq.UPDATE_MARK_MASK:
+            res.success = self.img_masker.check_and_update_mask(
+                self.rgb_img, self.depth_img, req.mask_id, True)
+            corners_result = self.img_masker.get_corners(req.mask_id)
+            if corners_result is None:
+                res.success = False
+            _, marker_corners, corners_depth = corners_result
+            poses, _, _ = self.compute_marker_poses(marker_corners)
+            res.marker_poses = poses
+            res.corners_depth = corners_depth
+
+        if req.mode & rq.START_UPDATE_TIMER:
+            self.start_update_timer()
+        
+        if req.mode & rq.STOP_UPDATE_TIMER:
+            self.destroy_timer(self.update_timer)
+
+        if req.mode & rq.MARK_RELEASE:
+            self.marker_occupied[req.mask_id] = False
+
+        if not req.mode & rq.GET_MASKED_IMG:
+            self.img_result[id] = None
+            self.corners_result[id] = None
             return res
         
-        img_result = self.img_masker.get_masked_img(
-            self.rgb_img, self.depth_img, req.mask_id, req.update_mark_mask)
-        
-        corners_result = self.img_masker.get_corners(req.mask_id)
-        
-        if img_result is None or corners_result is None:
+        if self.img_result[req.mask_id] is None or self.corners_result[req.mask_id] is None:
             res.success = False
             return res
+        
+        rgb_img, depth_img, seg_mask_uint8 = copy.deepcopy(self.img_result[req.mask_id])
+        mask_corners, marker_corners, corners_depth = copy.deepcopy(self.corners_result[req.mask_id])
 
-        rgb_img, depth_img, seg_mask_uint8 = img_result
-        mask_corners, marker_corners, corners_depth = corners_result
+        self.marker_occupied[req.mask_id] = True
+        self.img_result[req.mask_id] = None
+        self.corners_result[req.mask_id] = None
+
         imgs, infos, seg_mask_uint8 = self.resize_img(
             [rgb_img, depth_img], 
             [self.rgb_info_msg, self.depth_info_msg], 

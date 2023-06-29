@@ -1,7 +1,13 @@
-int8 mask_id
+uint8 CREATE_DEPTH_MASK = 1
+uint8 UPDATE_MARK_MASK = 2
+uint8 START_UPDATE_TIMER = 4
+uint8 STOP_UPDATE_TIMER = 8
+uint8 MARK_RELEASE = 16
+uint8 GET_MASKED_IMG = 32
+
+uint8 mode
+uint8 mask_id
 int16[2] resolution
-bool create_depth_mask
-bool update_mark_mask
 
 ---
 
