@@ -242,6 +242,9 @@ class MaskColorAndDepthImage(rclpy.node.Node):
         self.get_marker = False
         self.get_mask_image = False
 
+        self.rgb_img_header = None
+        self.depth_img_header = None
+
         # Make sure we have a valid dictionary id:
         try:
             dictionary_id = cv2.aruco.__getattribute__(dictionary_id_name)
@@ -317,10 +320,12 @@ class MaskColorAndDepthImage(rclpy.node.Node):
         self.destroy_subscription(self.depth_info_sub)
 
     def image_callback(self, img_msg):
+        self.rgb_img_header = img_msg.header
         self.rgb_img = self.bridge.imgmsg_to_cv2(img_msg,
             desired_encoding='bgr8')
         
     def depth_image_callback(self, depth_img_msg):
+        self.depth_img_header = depth_img_msg.header
         self.depth_img = self.bridge.imgmsg_to_cv2(depth_img_msg,
             desired_encoding='16UC1')
  
@@ -499,6 +504,8 @@ class MaskColorAndDepthImage(rclpy.node.Node):
         res.rgb_img = self.bridge.cv2_to_imgmsg(imgs[0], encoding="rgb8")
         res.depth_img = self.bridge.cv2_to_imgmsg(imgs[1], encoding="mono16")
         res.segmask = self.bridge.cv2_to_imgmsg(seg_mask_uint8, encoding="mono8")
+        res.rgb_img.header = self.rgb_img_header
+        res.depth_img.header = self.depth_img_header
         res.marker_poses = poses
         res.corners_depth = corners_depth
         res.success = True
