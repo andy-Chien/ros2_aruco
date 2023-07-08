@@ -66,35 +66,35 @@ class ArucoImageMasker:
         self.empty_depth_img = dict()
         self.corners_depth = dict()
         mesh_file = "/home/andy/packing_ws/install/mr_description/share/mr_description/meshes/black_box_bigger.stl"
-        box_mesh = o3d.io.read_triangle_mesh(mesh_file)
+        # box_mesh = o3d.io.read_triangle_mesh(mesh_file)
         self.box_mesh_trimesh = trimesh.load_mesh(mesh_file)
-        print(self.box_mesh_trimesh.bounds)
-        print(self.box_mesh_trimesh.center_mass)
-        print(self.box_mesh_trimesh.centroid)
-        o3d.visualization.draw_geometries([box_mesh], window_name='Open3D', width=1920, height=1080, \
-            left=50, top=50, point_show_normal=False, mesh_show_wireframe=False, mesh_show_back_face=False)
-        vis = o3d.visualization.Visualizer()
+        # print(self.box_mesh_trimesh.bounds)
+        # print(self.box_mesh_trimesh.center_mass)
+        # print(self.box_mesh_trimesh.centroid)
+        # o3d.visualization.draw_geometries([box_mesh], window_name='Open3D', width=1920, height=1080, \
+        #     left=50, top=50, point_show_normal=False, mesh_show_wireframe=False, mesh_show_back_face=False)
+        # vis = o3d.visualization.Visualizer()
         # Create a window, name it and scale it
-        vis.create_window(window_name='Bunny Visualize', width=800, height=600)
+        # vis.create_window(window_name='Bunny Visualize', width=800, height=600)
 
-        # Add the voxel grid to the visualizer
-        vis.add_geometry(box_mesh)
+        # # Add the voxel grid to the visualizer
+        # vis.add_geometry(box_mesh)
 
-        # We run the visualizater
-        vis.run()
-        # Once the visualizer is closed destroy the window and clean up
-        vis.destroy_window()
-        self.box_voxel = o3d.geometry.VoxelGrid.create_from_triangle_mesh(box_mesh, 0.001)
-        o3d.visualization.draw_geometries([self.box_voxel], window_name='Open3D', width=1920, height=1080, \
-            left=50, top=50, point_show_normal=False, mesh_show_wireframe=False, mesh_show_back_face=False)
-        voxel_list = self.box_voxel.get_voxels()
-        voxel_list = [np.array(voxel.grid_index, dtype=np.uint32) for voxel in voxel_list]
-        box_indx_size = np.max(voxel_list, axis=0) + 1
-        self.box_indx_size = box_indx_size
-        self.box_voxel_bool = [[[False] * box_indx_size[2]] * box_indx_size[1]] * box_indx_size[0]
-        # print('self.box_voxel.origin = {} \n self.box_voxel_bool = {}'.format(self.box_voxel.origin, self.box_voxel_bool))
-        for idx in voxel_list:
-            self.box_voxel_bool[idx[0]][idx[1]][idx[2]] = True
+        # # We run the visualizater
+        # vis.run()
+        # # Once the visualizer is closed destroy the window and clean up
+        # vis.destroy_window()
+        # self.box_voxel = o3d.geometry.VoxelGrid.create_from_triangle_mesh(box_mesh, 0.001)
+        # o3d.visualization.draw_geometries([self.box_voxel], window_name='Open3D', width=1920, height=1080, \
+        #     left=50, top=50, point_show_normal=False, mesh_show_wireframe=False, mesh_show_back_face=False)
+        # voxel_list = self.box_voxel.get_voxels()
+        # voxel_list = [np.array(voxel.grid_index, dtype=np.uint32) for voxel in voxel_list]
+        # box_indx_size = np.max(voxel_list, axis=0) + 1
+        # self.box_indx_size = box_indx_size
+        # self.box_voxel_bool = [[[False] * box_indx_size[2]] * box_indx_size[1]] * box_indx_size[0]
+        # # print('self.box_voxel.origin = {} \n self.box_voxel_bool = {}'.format(self.box_voxel.origin, self.box_voxel_bool))
+        # for idx in voxel_list:
+        #     self.box_voxel_bool[idx[0]][idx[1]][idx[2]] = True
         
         # print('self.box_voxel.origin = {} \n self.box_voxel_bool = {}'.format(self.box_voxel.origin, self.box_voxel_bool))
 
@@ -239,6 +239,8 @@ class ArucoImageMasker:
 
     def find_mask_corners(self, rgb_img, target_id):
         corners, ids = self.find_aruco(rgb_img)
+        if ids is None or corners is None:
+            return False
         num_of_id = dict()
         for [id] in ids:
             num_of_id[id] = 0
