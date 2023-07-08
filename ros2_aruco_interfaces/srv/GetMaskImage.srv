@@ -17,5 +17,6 @@ sensor_msgs/Image segmask
 sensor_msgs/CameraInfo rgb_camera_info
 sensor_msgs/CameraInfo depth_camera_info
 geometry_msgs/Pose[] marker_poses
+string poses_frame
 float32[] corners_depth
 bool success
