@@ -108,6 +108,15 @@ class ArucoImageMasker:
            and (depth_img is None or not self.find_mask_corners(rgb_img, id)):
             return False
         if force_update or id not in self.rgb_masks or id not in self.depth_masks:
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+            print('self.rgb_masks = {}, self.mask_corners = {}'.format(self.rgb_masks, self.mask_corners))
             self.rgb_masks[id] = self.generate_mask(self.mask_corners[id], rgb_img, np.uint8)
             self.depth_masks[id] = self.generate_mask(self.mask_corners[id], depth_img, np.uint16)
             self.corners_depth[id] = []
@@ -246,6 +255,7 @@ class ArucoImageMasker:
             num_of_id[id] = 0
         for [id] in ids: 
             num_of_id[id] += 1
+        print('num_of_id = {}'.format(num_of_id))
         if target_id not in num_of_id or num_of_id[target_id] != 4:
             return False
         mask_corners = []
@@ -270,8 +280,8 @@ class ArucoImageMasker:
                     d_min_idx = j
             order.append(d_min_idx)
 
-        self.mask_corners[id] = [mask_corners[i] for i in order]
-        self.marker_corners[id] = [marker_corners[i] for i in order]
+        self.mask_corners[target_id] = [mask_corners[i] for i in order]
+        self.marker_corners[target_id] = [marker_corners[i] for i in order]
         return True
 
     def generate_mask(self, corner, img, dtype=np.uint8):
@@ -426,6 +436,8 @@ class MaskColorAndDepthImage(rclpy.node.Node):
             self.img_result[id] = None
             self.corners_result[id] = None
 
+        self.id_list = []
+
         self.aruco_dictionary = cv2.aruco.Dictionary_get(dictionary_id)
         self.aruco_parameters = cv2.aruco.DetectorParameters_create()
         self.img_masker = ArucoImageMasker(self.aruco_dictionary, self.aruco_parameters)
@@ -434,11 +446,12 @@ class MaskColorAndDepthImage(rclpy.node.Node):
         self.update_timer = None
 
     def start_update_timer(self):
-        timer_period = 0.2
-        self.update_timer = self.create_timer(timer_period, self.update_timer_cb)
+        if self.update_timer == None:
+            timer_period = 0.2
+            self.update_timer = self.create_timer(timer_period, self.update_timer_cb)
 
     def update_timer_cb(self):
-        for id in ID_LIST:
+        for id in self.id_list:
             if not self.marker_occupied[id] and (self.img_result[id] is None or self.corners_result[id] is None):
                 self.update_masked_img(id)
 
@@ -591,6 +604,8 @@ class MaskColorAndDepthImage(rclpy.node.Node):
             self.img_masker.set_empty_depth_img(self.depth_img, req.mask_id)
 
         if req.mode & rq.UPDATE_MARK_MASK:
+            if req.mask_id not in self.id_list:
+                self.id_list.append(req.mask_id)
             res.success = self.img_masker.check_and_update_mask(
                 self.rgb_img, self.depth_img, req.mask_id, True)
             corners_result = self.img_masker.get_corners(req.mask_id)
@@ -604,10 +619,13 @@ class MaskColorAndDepthImage(rclpy.node.Node):
 
 
         if req.mode & rq.START_UPDATE_TIMER:
+            if req.mask_id not in self.id_list:
+                self.id_list.append(req.mask_id)
             self.start_update_timer()
         
         if req.mode & rq.STOP_UPDATE_TIMER:
             self.destroy_timer(self.update_timer)
+            self.update_timer = None
 
         if req.mode & rq.MARK_RELEASE:
             self.marker_occupied[req.mask_id] = False
