@@ -29,7 +29,7 @@ Version: 10/26/2020
 
 import rclpy
 import rclpy.node
-from rclpy.qos import qos_profile_sensor_data
+# from rclpy.qos import qos_profile_sensor_data
 from cv_bridge import CvBridge
 import numpy as np
 import cv2
@@ -50,6 +50,7 @@ DRAW_MARKER_POSE = False
 IM_SHOW = False
 IM_PUBLISH = False
 ID_LIST = [5, 15]
+PICKING_BOX_ID = 5
 
 class ArucoImageMasker:
     def __init__(self, ad, ap):
@@ -65,7 +66,7 @@ class ArucoImageMasker:
         self.depth_masks = dict()
         self.empty_depth_img = dict()
         self.corners_depth = dict()
-        mesh_file = "/home/andy/packing_ws/install/mr_description/share/mr_description/meshes/black_box_bigger.stl"
+        mesh_file = "/home/andy/packing_ws/install/mr_description/share/mr_description/meshes/black_box_bigger_2.stl"
         # box_mesh = o3d.io.read_triangle_mesh(mesh_file)
         self.box_mesh_trimesh = trimesh.load_mesh(mesh_file)
         # print(self.box_mesh_trimesh.bounds)
@@ -174,8 +175,9 @@ class ArucoImageMasker:
                     bounded_rgb_seg_mask[i][j] = rgb_mask_color
                     bounded_depth_seg_mask[i][j] = depth_mask_color
                     seg_mask_uint8[i][j] = np.iinfo(np.uint8).max
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (DEPTH_THRESHOLD, DEPTH_THRESHOLD))
-        seg_mask_uint8 = cv2.dilate(cv2.erode(seg_mask_uint8, kernel), kernel)
+        kernel_1 = cv2.getStructuringElement(cv2.MORPH_RECT, (DEPTH_THRESHOLD+5, DEPTH_THRESHOLD+5))
+        kernel_2 = cv2.getStructuringElement(cv2.MORPH_RECT, (DEPTH_THRESHOLD, DEPTH_THRESHOLD))
+        seg_mask_uint8 = cv2.dilate(cv2.erode(seg_mask_uint8, kernel_1), kernel_2)
         
         rgb_seg_mask[bound[0][1]:bound[1][1], bound[0][0]:bound[1][0]] = bounded_rgb_seg_mask
         depth_seg_mask[bound[0][1]:bound[1][1], bound[0][0]:bound[1][0]] = bounded_depth_seg_mask
@@ -193,6 +195,7 @@ class ArucoImageMasker:
         mat = np.identity(4)
         mat[:3, :3] = qtn.as_rotation_matrix(box_q)
         mat[:3, 3] = box_pos
+        mat[2, 3] -= 0.01
         mat = np.linalg.inv(mat)
         seg_mask_uint8 = np.zeros(bounded_img.shape, dtype=np.uint8)
         pos_list = []
@@ -404,19 +407,19 @@ class MaskColorAndDepthImage(rclpy.node.Node):
         self.rgb_info_sub = self.create_subscription(CameraInfo,
                                                  rgb_info_topic,
                                                  self.rgb_info_callback,
-                                                 qos_profile_sensor_data)
+                                                 1)
         
         self.depth_info_sub = self.create_subscription(CameraInfo,
                                                  depth_info_topic,
                                                  self.depth_info_callback,
-                                                 qos_profile_sensor_data)
+                                                 1)
 
-        self.create_subscription(Image, image_topic,
-                                 self.image_callback, qos_profile_sensor_data)
+        self.img_sub = self.create_subscription(Image, image_topic,
+                                 self.image_callback, 1)
 
 
-        self.create_subscription(Image, depth_image_topic,
-                                 self.depth_image_callback, qos_profile_sensor_data)
+        self.depth_img_sub = self.create_subscription(Image, depth_image_topic,
+                                 self.depth_image_callback, 1)
 
         self.image_masking_service = self.create_service(GetMaskImage, "image_masking", 
                                            self.image_masking_cb)
@@ -461,21 +464,28 @@ class MaskColorAndDepthImage(rclpy.node.Node):
         self.distortion = np.array(self.rgb_info_msg.d)
         # Assume that camera parameters will remain the same...
         self.destroy_subscription(self.rgb_info_sub)
+        print('rgb_info_callback')
+
 
     def depth_info_callback(self, info_msg):
         self.depth_info_msg = info_msg
         self.destroy_subscription(self.depth_info_sub)
+        print('depth_info_callback')
 
     def image_callback(self, img_msg):
+        if self.rgb_img is None:
+            print('image_callback')
         self.rgb_img_header = img_msg.header
         self.rgb_img = self.bridge.imgmsg_to_cv2(img_msg,
             desired_encoding='bgr8')
         
     def depth_image_callback(self, depth_img_msg):
+        if self.depth_img is None:
+            print('depth_image_callback')
         self.depth_img_header = depth_img_msg.header
         self.depth_img = self.bridge.imgmsg_to_cv2(depth_img_msg,
             desired_encoding='16UC1')
- 
+
     def compute_marker_poses(self, corners):
         if cv2.__version__ > '4.0.0':
             rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
@@ -572,10 +582,10 @@ class MaskColorAndDepthImage(rclpy.node.Node):
                 if 20 < x < max_z - 100:
                     print('something higher')
                     return
-
+        get_seg_mask = id == PICKING_BOX_ID
         img_result = self.img_masker.get_masked_img(
             self.marker_size, self.intrinsic_mat, self.distortion,
-            self.rgb_img, self.depth_img, id, True, get_seg_mask=True)
+            self.rgb_img, self.depth_img, id, True, get_seg_mask=get_seg_mask)
         if img_result is None:
             print('img_result is None!')
             return
